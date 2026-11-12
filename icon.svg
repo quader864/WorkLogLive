@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="112" fill="#182420"/>
+  <rect x="44" y="44" width="424" height="424" rx="84" stroke="#2E7D5B" stroke-width="10" stroke-opacity="0.45"/>
+  <!-- ECU / Chip pins top & bottom -->
+  <path d="M176 96V136M224 96V136M288 96V136M336 96V136" stroke="#D98A2B" stroke-width="14" stroke-linecap="round"/>
+  <path d="M176 376V416M224 376V416M288 376V416M336 376V416" stroke="#D98A2B" stroke-width="14" stroke-linecap="round"/>
+  <!-- Main ECU module body -->
+  <rect x="132" y="136" width="248" height="240" rx="32" fill="#23362F" stroke="#3FA378" stroke-width="14"/>
+  <!-- Precision Worklog check / diagnostic trace -->
+  <path d="M192 258L234 300L322 210" stroke="#F5F5F2" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
