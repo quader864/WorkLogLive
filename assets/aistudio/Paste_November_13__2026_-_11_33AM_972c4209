@@ -1,0 +1,971 @@
+# WORKLOG — Complete Premium UI/UX Redesign & Implementation
+
+## ROLE
+
+Act as a world-class Principal Product Designer, Creative Director, Senior Frontend Engineer, and Motion Designer.
+
+You are redesigning an existing production application called **WORKLOG**.
+
+Your design quality should be comparable to products created by the best product design teams in the world.
+
+Use the design philosophy and quality standards of:
+
+- Apple: refined typography, material depth, elegant transitions, contextual interfaces, and attention to detail.
+- Linear: exceptional information hierarchy, sophisticated dark interfaces, precise spacing, and minimal visual noise.
+- Stripe: professional data visualization, clean forms, consistent components, and excellent usability.
+- Raycast: polished interactions, keyboard-driven workflows, responsive controls, and delightful microinteractions.
+- Vercel: technically excellent web interfaces, consistency, accessibility, and responsive layouts.
+
+Do not copy these products. Understand what makes their interfaces exceptional and create an original visual identity for WORKLOG.
+
+**Your task is to actually redesign and implement the existing application, not merely produce a design concept, mockup, or list of suggestions.**
+
+---
+
+# 1. UNDERSTAND THE EXISTING APPLICATION FIRST
+
+Before making changes, inspect the entire existing project.
+
+Understand:
+
+- The frontend framework and architecture.
+- Existing components and page structure.
+- Current CSS and design system.
+- Routing and navigation.
+- IndexedDB database structure and persistence.
+- Existing application state and business logic.
+- PWA installation and service worker.
+- Localization and language switching.
+- Existing icons, fonts, chart libraries, and dependencies.
+- All interactions and existing functionality.
+
+Use the supplied screenshots as visual references for the current state.
+
+The application currently includes:
+
+1. Dashboard
+2. Daily Reports
+3. Attendance
+4. History
+5. Employees
+6. Settings
+
+The dashboard displays daily statistics, ECU processing information, working hours, parts received, deliveries, weekly performance, and recent activity.
+
+The Daily Report editor includes employee information, task descriptions, learning notes, ECU information, parts received, and deliveries.
+
+Preserve all existing functionality.
+
+Do not break or replace existing data models, IndexedDB storage, authentication, business rules, or working functionality simply to achieve a visual redesign.
+
+If something already works, improve its presentation without unnecessarily rewriting its implementation.
+
+---
+
+# 2. THE CREATIVE DIRECTION
+
+## Build a distinctive visual identity
+
+WORKLOG should feel like a premium professional operations instrument.
+
+Think of a sophisticated industrial workstation combined with an elegant macOS application.
+
+The interface should feel:
+
+- Precise.
+- Sophisticated.
+- Calm.
+- Modern.
+- Technical.
+- Professional.
+- Responsive.
+- Intentionally designed.
+- Visually memorable.
+
+Avoid the appearance of a generic AI-generated SaaS dashboard.
+
+The result must look art-directed rather than assembled from generic UI components.
+
+## AVOID THESE DESIGN MISTAKES
+
+Do not:
+
+- Put everything inside identical rounded cards.
+- Use excessive glassmorphism.
+- Use purple-blue AI gradients.
+- Put gradients on every button and panel.
+- Add decorative glowing borders everywhere.
+- Use oversized headings without purpose.
+- Use random icons or emojis.
+- Make everything equally important.
+- Use tiny text for important information.
+- Fill every empty space with another card.
+- Use excessive shadows.
+- Create a dashboard that looks like a generic admin template.
+- Add animations that exist only to make the application look animated.
+
+Every design decision must have a reason.
+
+Use negative space deliberately. Establish clear visual hierarchy. Create contrast between functional navigation, primary information, secondary information, and interactive controls.
+
+---
+
+# 3. CREATE A COMPLETE DESIGN SYSTEM
+
+Create centralized design tokens using CSS variables or the project's existing design-token architecture.
+
+### Color direction
+
+Retain the existing deep green identity, but develop it into a much more sophisticated palette.
+
+Suggested starting palette:
+
+- Main background: #101512
+- Sidebar background: #151E19
+- Primary surface: #1A231D
+- Elevated surface: #202B24
+- Interactive surface: #27342C
+- Main text: #F1F5F1
+- Secondary text: #A1ADA5
+- Muted text: #77847C
+- Primary accent: #55C99A
+- Accent hover: #70D9AC
+- Warning: #E8AE57
+- Danger: #EF7773
+- Information: #84B9D0
+- Borders: subtle translucent neutral-green borders.
+
+These are starting values, not mandatory fixed colours. Refine them to achieve a coherent, premium appearance.
+
+Use accent colours according to meaning:
+
+- Green: successful actions, attendance, completion.
+- Amber: pending actions, time, warnings.
+- Red: errors, destructive actions.
+- Blue: informational states.
+
+Never depend on colour alone to communicate status.
+
+### Surface and depth system
+
+Design a deliberate hierarchy of surfaces.
+
+Differentiate:
+
+- Application canvas.
+- Navigation layer.
+- Main content.
+- Elevated interactive panels.
+- Popovers.
+- Dialogs.
+- Tooltips.
+
+Use restrained transparency and backdrop blur only where they add real value, particularly navigation overlays, floating controls, and dialogs.
+
+Do not turn the whole application into transparent glass.
+
+Use subtle borders, realistic depth, and carefully layered shadows.
+
+### Border radius
+
+Introduce a consistent radius system.
+
+Use smaller radii for inputs, buttons, and compact controls, and larger radii only for major containers.
+
+Not everything should have the same corner radius.
+
+### Typography
+
+Typography must become a major part of the visual identity.
+
+Use a high-quality interface typeface such as Geist or Inter if already available or practical to bundle locally.
+
+Use a consistent typographic scale:
+
+- Large page titles: approximately 28–34px.
+- Section titles: approximately 18–21px.
+- Body text: approximately 14–15px.
+- Supporting text: approximately 12–13px.
+- Important metric values: approximately 28–36px.
+
+Adjust based on actual viewport size and content.
+
+Use appropriate weights, line heights, and letter spacing.
+
+Use tabular numerals for time, statistics, working hours, and numerical comparisons.
+
+Never sacrifice readability to make the interface look minimal.
+
+Because this is an offline-capable application, bundle necessary font assets locally rather than introducing a runtime dependency on an external font CDN.
+
+### Icons
+
+Use one consistent icon family, preferably the project's existing icon library or Lucide.
+
+Keep icon sizes and stroke weights consistent.
+
+Icons must have sensible alignment, proportions, and interaction states.
+
+Avoid emoji as interface icons.
+
+---
+
+# 4. REDESIGN THE ENTIRE APPLICATION SHELL
+
+The navigation structure needs a significant improvement.
+
+## Sidebar
+
+Create a beautifully designed, responsive sidebar.
+
+Requirements:
+
+- Refined WORKLOG brand identity.
+- A distinctive, minimal application symbol.
+- Clear navigation grouping.
+- Carefully aligned icons and labels.
+- A sophisticated active-page indicator.
+- Subtle hover effects.
+- Collapsible sidebar on desktop.
+- Icon-only compact mode.
+- Responsive mobile navigation.
+- Employee profile and shift status at the bottom.
+
+Navigation items:
+
+Dashboard
+Daily Reports
+Attendance
+History
+Employees
+Settings
+
+The active navigation indicator should animate smoothly between destinations.
+
+Do not use a large saturated rectangle behind every active element.
+
+Create a sophisticated selected state through a combination of subtle surface changes, accent colour, and a restrained indicator.
+
+## Top navigation
+
+Redesign the top bar.
+
+It should contain only genuinely useful controls:
+
+- Current page title or breadcrumb.
+- Date and time where appropriate.
+- Search or command palette access.
+- Notifications if supported by the existing application.
+- Language selector.
+- Theme selector.
+- User profile menu.
+
+Remove redundant application branding and unnecessary decorative controls.
+
+The top bar should integrate naturally with the rest of the interface.
+
+Consider a subtle translucent treatment where appropriate.
+
+---
+
+# 5. COMPLETELY TRANSFORM THE DASHBOARD
+
+The dashboard is the application's most important visual experience.
+
+It should immediately communicate the state of the workplace.
+
+It should be visually impressive without becoming complicated.
+
+## A. Welcome / attendance area
+
+Replace the current generic welcome card with a more sophisticated contextual dashboard introduction.
+
+Display:
+
+- A personalized greeting.
+- Current date.
+- Current attendance state.
+- Shift duration or elapsed working time when clocked in.
+- A prominent Clock In or Clock Out action.
+- Quick access to creating and editing today's report.
+
+Make the attendance state visually obvious.
+
+When the employee is clocked in, the design should feel different from the clocked-out state.
+
+Create a beautiful attendance status component with a subtle animated indicator.
+
+The primary action must be immediately recognizable.
+
+## B. Statistics
+
+Redesign the existing statistics:
+
+- Tasks Today
+- ECUs Processed
+- Working Hours
+- Parts Received
+- Items Delivered
+
+Do not simply reproduce five identical rectangular cards.
+
+Create a better information hierarchy.
+
+Use:
+
+- Strong numerical typography.
+- Small descriptive labels.
+- Meaningful icons.
+- Subtle supporting information.
+- Optional sparklines or comparisons where real data is available.
+- Refined hover feedback.
+- Contextual status colours.
+
+Make the numbers visually important.
+
+Avoid fabricating percentage changes or historical comparisons.
+
+Animate numerical changes when actual values change.
+
+## C. Weekly Overview
+
+Transform the current chart into a professional data visualization.
+
+It should include:
+
+- Elegant animated bars.
+- Clear axes and labels.
+- Meaningful hover tooltips.
+- Smooth transitions when filters change.
+- Clear visual distinction between hours and tasks.
+- Responsive chart layout.
+- A properly designed empty state.
+- Appropriate numerical formatting.
+
+The chart should look like a carefully designed analytical component, not a default chart-library output.
+
+Use actual stored data.
+
+Add useful time-range selection only if supported by the existing data.
+
+## D. Today's Activity
+
+Redesign the activity section as a sophisticated timeline.
+
+Display:
+
+- Employee identity.
+- Activity description.
+- Relevant task or ECU information.
+- Time.
+- Duration or status when applicable.
+
+Use distinct visual indicators for clock-ins, clock-outs, completed tasks, and other activity types.
+
+Make the timeline easy to scan.
+
+Introduce elegant separators, precise spacing, and carefully considered typography.
+
+## E. Layout
+
+Create a responsive dashboard composition.
+
+Use a proper desktop grid.
+
+Give the weekly overview and activity timeline enough room to breathe.
+
+Do not squeeze the application into unnecessarily narrow containers.
+
+Use screen space intelligently across large monitors, laptops, tablets, and mobile devices.
+
+---
+
+# 6. COMPLETELY REDESIGN THE DAILY REPORT EDITOR
+
+This page requires particular attention.
+
+In the supplied screenshot, the report form is extremely narrow relative to the available desktop screen width.
+
+It resembles a long generic HTML form rather than a premium professional reporting workspace.
+
+This must change.
+
+## New reporting experience
+
+Create an elegant, structured reporting workspace.
+
+On desktop, use a much wider content container, approximately 1050–1200px when screen space allows.
+
+Use a well-designed grid and intentional column proportions.
+
+Do not constrain the entire report to a narrow central column.
+
+The page should have a clear hierarchy:
+
+### Header
+
+- Daily Report title.
+- Current date.
+- Draft / Saved status.
+- New report action.
+- Short supporting description.
+
+### Basic Information
+
+Display employee information in a visually structured section.
+
+Use appropriate input widths and grouping.
+
+Avoid excessive empty space or unnecessarily tall fields.
+
+### Daily Tasks
+
+This should become one of the best-designed parts of the application.
+
+Each task should be represented as a refined expandable task panel.
+
+Include:
+
+- Task number.
+- Task title.
+- ECU units.
+- Description.
+- What the employee learned.
+- What the employee taught.
+- Task completion state if supported.
+- Expand/collapse controls.
+- Reordering and removal controls where currently supported.
+
+Use beautiful, meaningful section headers.
+
+When a task expands, animate it naturally.
+
+Adding a new task should produce an elegant transition rather than suddenly inserting another generic form.
+
+### ECU Information
+
+Redesign ECU entries as structured technical records.
+
+Display:
+
+- ECU name.
+- Quantity.
+- Programmer used.
+- Original program file.
+- Converted file.
+
+Make it feel like a professional technical record, with clear data grouping and excellent alignment.
+
+### Parts Received
+
+Create a clean, structured incoming-parts section.
+
+Display the relevant details of each recorded part.
+
+Support empty states that communicate what belongs in the section.
+
+### Deliveries
+
+Create a similarly polished outgoing-deliveries section.
+
+Maintain visual consistency without making the two sections unnecessarily identical.
+
+### Form actions
+
+Create an elegant save experience.
+
+Include:
+
+- Reset.
+- Cancel.
+- Save as Draft.
+- Save Report.
+
+Use a sticky or context-aware action bar on desktop when appropriate.
+
+Make the primary save action visually clear.
+
+Provide an autosave indicator only if actual autosaving is implemented.
+
+Never display a fake Saved status.
+
+### Form interaction quality
+
+Implement:
+
+- Beautiful focus states.
+- Clear validation.
+- Inline error messages.
+- Helpful field descriptions.
+- Smooth expansion and collapse.
+- Consistent input heights.
+- Proper textarea sizing.
+- Predictable keyboard navigation.
+- Unsaved-changes protection where appropriate.
+
+Do not make input fields look like generic browser defaults.
+
+---
+
+# 7. REDESIGN THE REMAINING PAGES
+
+The redesign must be comprehensive.
+
+Do not stop after improving the dashboard.
+
+## Attendance
+
+Create a premium attendance management interface.
+
+Include:
+
+- Clock In / Clock Out.
+- Current shift status.
+- Elapsed shift duration.
+- Attendance history.
+- Daily records.
+- Relevant attendance statistics.
+- Clear status indicators.
+
+The clock action should have a satisfying visual response.
+
+## History
+
+Create a professional searchable historical records interface.
+
+Include:
+
+- Date filtering.
+- Employee filtering.
+- Search.
+- Organized records.
+- Useful status indicators.
+- Clear sorting.
+- Pagination or appropriate progressive loading if required.
+
+Use refined tables and responsive layouts.
+
+## Employees
+
+Create a clean employee management experience.
+
+Include:
+
+- Employee identity and profile.
+- Role or position.
+- Employment status where available.
+- Relevant statistics.
+- Search and filtering.
+- Employee detail views.
+- Existing employee-management actions.
+
+Use carefully designed employee rows or profile cards based on the amount of information available.
+
+## Settings
+
+Create a structured settings experience.
+
+Organize settings into logical categories.
+
+Include existing functionality such as:
+
+- Profile.
+- Application preferences.
+- Language.
+- Appearance.
+- Data and storage options if present.
+- Other existing configuration options.
+
+Use a polished settings navigation layout similar in clarity to a high-quality desktop application.
+
+---
+
+# 8. MOTION DESIGN — A MAJOR PRIORITY
+
+The current application feels static.
+
+I want WORKLOG to have a coherent motion language.
+
+It should feel responsive, fluid, and thoughtfully engineered.
+
+Motion must communicate hierarchy, cause and effect, and feedback.
+
+Do not simply add random animations.
+
+Create a centralized motion system with consistent timing, easing, and behaviour.
+
+## A. Application entrance
+
+On initial load:
+
+- Allow the main layout to appear smoothly.
+- Use a subtle fade and small vertical movement.
+- Introduce major dashboard sections with a restrained stagger.
+- Avoid animations that delay the user's ability to interact.
+
+## B. Page transitions
+
+When navigating:
+
+- Use subtle transitions between page content.
+- Keep the navigation shell stable.
+- Avoid full-screen animations.
+- Make transitions feel quick and refined.
+
+## C. Hover and press effects
+
+Buttons should have tactile feedback.
+
+Implement:
+
+- Subtle surface changes.
+- Slight movement or scale on hover where appropriate.
+- A restrained pressed state.
+- Smooth focus transitions.
+- Consistent interactive feedback.
+
+Cards can lift by a very small amount when hovering if they are genuinely interactive.
+
+Do not animate every static container.
+
+## D. Dashboard statistics
+
+Animate numbers when their underlying values genuinely change.
+
+Use a smooth count-up or value-transition effect.
+
+Do not endlessly replay count-up animations.
+
+## E. Charts
+
+Animate chart bars when the chart first appears.
+
+Use smooth transitions when actual chart data changes.
+
+Tooltips should appear naturally.
+
+Keep animation performant.
+
+## F. Attendance celebration
+
+Clock In and Clock Out should feel especially polished.
+
+For example:
+
+1. User clicks Clock In.
+2. Button immediately shows an appropriate processing state.
+3. The action completes.
+4. The attendance state transitions elegantly.
+5. A subtle animated success indicator appears.
+6. The shift timer becomes visible.
+7. A refined confirmation toast appears.
+
+The feedback should feel satisfying, not childish.
+
+Use a beautiful small success animation rather than fireworks or excessive confetti.
+
+## G. Task interactions
+
+Adding a task should smoothly introduce its new task panel.
+
+Removing a task should animate its disappearance.
+
+Expanding and collapsing panels should feel fluid.
+
+If reordering already exists, ensure it has appropriate drag feedback and keyboard-accessible alternatives.
+
+## H. Dialogs and notifications
+
+Dialogs should have polished entrance and exit transitions.
+
+Use restrained scale and opacity changes.
+
+Toasts should appear and disappear gracefully.
+
+Support success, warning, and error states.
+
+## I. Motion specifications
+
+As a starting point:
+
+- Small interaction transitions: 120–180ms.
+- Button and control transitions: 150–220ms.
+- Panel expansion: 180–280ms.
+- Dialog transitions: 200–260ms.
+- Page transitions: 160–220ms.
+- Larger entrance sequences: approximately 350–600ms.
+
+Use appropriate easing curves rather than one generic transition everywhere.
+
+Prefer CSS animations and GPU-friendly transform and opacity properties.
+
+Use an existing motion library if the project already has one. Do not introduce unnecessary heavy dependencies.
+
+Never use transition: all.
+
+Respect the user's prefers-reduced-motion setting.
+
+No constant distracting movement or unnecessary looping animations.
+
+---
+
+# 9. ADD SMALL DETAILS THAT MAKE IT FEEL EXPENSIVE
+
+The difference between a basic interface and an exceptional one is often in the details.
+
+Pay close attention to:
+
+- One-pixel alignment differences.
+- Text baselines.
+- Icon alignment.
+- Consistent control heights.
+- Carefully designed separators.
+- Subtle background depth.
+- Proper loading states.
+- Skeleton layouts.
+- Empty states.
+- Error states.
+- Tooltips.
+- Dropdown animations.
+- Popover positioning.
+- Scroll behaviour.
+- Focus indicators.
+- Table row interactions.
+- Selection behaviour.
+- Button loading states.
+- Saved-state feedback.
+
+Add a keyboard command palette triggered by Ctrl+K / Cmd+K if it can be integrated cleanly.
+
+It should allow users to search for pages and access common existing actions.
+
+Display available keyboard shortcuts where helpful.
+
+Do not implement fake actions.
+
+Every interactive visual element must perform a real action.
+
+---
+
+# 10. RESPONSIVE DESIGN
+
+WORKLOG must look professionally designed on:
+
+- 1440px desktop.
+- 1280px laptop.
+- 1024px tablet / small laptop.
+- 768px tablet.
+- 390px mobile.
+- Narrow mobile screens.
+
+Desktop:
+
+Use the full available space intelligently.
+
+Tablet:
+
+Adapt navigation and grid layouts without compromising readability.
+
+Mobile:
+
+Use a deliberate mobile navigation system.
+
+Stack dashboard metrics appropriately.
+
+Redesign forms for vertical interaction.
+
+Make buttons comfortable to use with touch.
+
+Avoid horizontal overflow.
+
+Use adequate touch targets.
+
+Never simply shrink the desktop interface to fit a phone.
+
+---
+
+# 11. ENGLISH AND PERSIAN LOCALIZATION
+
+The application has a language selector.
+
+Preserve and improve this functionality.
+
+Make sure:
+
+- English layout works correctly.
+- Persian layout works correctly.
+- RTL support is complete.
+- Text alignment changes appropriately.
+- Navigation and forms support RTL.
+- Icons and directional elements are handled correctly.
+- Long Persian and English text does not break layouts.
+- Dates and numbers use appropriate locale formatting.
+- Language changes do not destroy user input or application state.
+
+Do not treat RTL as simply setting text-align: right.
+
+---
+
+# 12. ACCESSIBILITY AND PERFORMANCE
+
+Maintain high-quality accessibility.
+
+Ensure:
+
+- Proper colour contrast.
+- Visible keyboard focus.
+- Semantic HTML.
+- Accessible labels.
+- Keyboard-operable navigation.
+- Screen-reader-friendly notifications.
+- Accessible dialogs.
+- Reduced-motion support.
+- Adequate touch target sizes.
+
+Maintain performance.
+
+The interface must remain responsive even when the database contains significant amounts of data.
+
+Avoid unnecessary React re-renders, expensive layout recalculations, and excessive animation work.
+
+Do not load large assets or libraries without justification.
+
+---
+
+# 13. PRESERVE OFFLINE AND PWA FUNCTIONALITY
+
+This is extremely important.
+
+The application must continue to operate as an offline-capable PWA.
+
+Preserve:
+
+- Existing IndexedDB persistence.
+- Existing database schema.
+- Service worker behaviour.
+- Offline application loading.
+- Installability.
+- Existing data.
+- Existing application logic.
+- Existing authentication and API integrations, if present.
+
+Do not introduce fonts, scripts, or other essential runtime assets that require internet access.
+
+Do not remove or replace existing records.
+
+Do not introduce destructive database migrations.
+
+A design overhaul must not compromise the reliability of the application.
+
+---
+
+# 14. IMPLEMENTATION PROCESS
+
+Work through the project systematically.
+
+### Phase 1 — Audit
+
+Inspect the entire project.
+
+Identify reusable components, existing dependencies, important workflows, design inconsistencies, and functional constraints.
+
+### Phase 2 — Design system
+
+Create the global visual foundations:
+
+- Design tokens.
+- Typography.
+- Colour system.
+- Spacing.
+- Radius system.
+- Shadows.
+- Surface hierarchy.
+- Component states.
+- Motion tokens.
+
+### Phase 3 — Application shell
+
+Redesign sidebar, top navigation, responsive shell, profile controls, and global interactions.
+
+### Phase 4 — Dashboard
+
+Implement the complete dashboard redesign.
+
+### Phase 5 — Daily Reports
+
+Implement the new reporting workspace and form experience.
+
+### Phase 6 — Other pages
+
+Redesign Attendance, History, Employees, and Settings.
+
+### Phase 7 — Motion
+
+Implement and refine the application-wide motion system and microinteractions.
+
+### Phase 8 — Quality assurance
+
+Test every page and every meaningful interaction.
+
+Check:
+
+- Navigation.
+- Clock In and Clock Out.
+- Report creation.
+- Report editing.
+- Draft saving.
+- Report submission.
+- Task addition and removal.
+- ECU record management.
+- Parts and delivery management.
+- Historical filtering.
+- Employee management.
+- Language switching.
+- RTL layouts.
+- Theme switching.
+- IndexedDB persistence.
+- Offline functionality.
+- PWA installation.
+
+Fix visual regressions, runtime errors, and responsive problems.
+
+---
+
+# 15. FINAL QUALITY STANDARD
+
+I do not want a slightly modified version of the current application.
+
+I want a substantial redesign.
+
+When someone opens WORKLOG, their first reaction should be:
+
+"This feels like a professionally designed, premium piece of software."
+
+It should look intentionally designed, not AI-generated.
+
+The dashboard should be memorable.
+
+The reporting workspace should feel effortless to use.
+
+The animations should feel natural.
+
+The visual hierarchy should be immediately understandable.
+
+Every page should belong to the same carefully designed product.
+
+## Final requirements
+
+1. Actually modify the existing project files.
+2. Redesign every application page, not just the dashboard.
+3. Preserve all existing business logic and stored data.
+4. Implement real interactions and animations.
+5. Maintain PWA and offline compatibility.
+6. Verify desktop, tablet, and mobile layouts.
+7. Do not leave placeholder sections or decorative nonfunctional buttons.
+8. Do not stop after creating a design proposal.
+9. Do not return only snippets or pseudocode.
+10. Run the relevant build and tests, fix any errors caused by your changes, and report what was completed.
+
+**Be ambitious with the visual redesign, exacting with the implementation, and extremely attentive to detail.**
+
+Make WORKLOG feel like a product that a world-class product design team would be proud to release.
