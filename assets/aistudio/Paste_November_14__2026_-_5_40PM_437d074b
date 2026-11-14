@@ -1,0 +1,931 @@
+# WorkLog user lifecycle and frontend implementation guide
+
+This guide is written from the WorkLog API, Supabase migrations, and service
+code in this repository. It documents the current backend contract and the
+frontend screens needed to use it.
+
+The repository contains the WorkLog API and SQL migrations, not the WorkLog
+frontend implementation. Screen and route names below are requirements and
+examples; they are not claims that those frontend pages already exist.
+WorkLog's database model is defined by the Supabase migrations. There are no
+WorkLog Mongoose models in this repository.
+
+## Code and schema sources
+
+Use these as the canonical sources when this guide and implementation differ:
+
+- `../routes/worklog/worklog.routes.js`: health, profile bootstrap,
+  organization creation and details.
+- `../routes/worklog/data.routes.js` and `../services/worklog/dataService.js`:
+  business data routes, field validation, API-to-database field mapping,
+  optimistic concurrency, and archive behavior.
+- `../routes/worklog/management.routes.js`: memberships, invitations, roles,
+  permissions, and settings.
+- `../services/worklog/organizationService.js`: profile synchronization,
+  membership lookup, organization creation.
+- `../services/worklog/invitationService.js`: invitation token, email, and
+  redirect URL behavior.
+- `../middleware/worklogAuth.js`: bearer authentication and permission check.
+- `../supabase/migrations/001_initial_worklog_schema.sql` through
+  `../supabase/migrations/004_worklog_invitations.sql`: actual tables,
+  constraints, triggers, RLS policies, permissions, and database functions.
+
+## 1. Understand the four different user records
+
+Do not treat registration, profile creation, organization membership, and
+employee creation as one operation.
+
+| Record | Purpose | Created or updated by |
+|---|---|---|
+| Supabase Auth user | Credentials and authenticated identity. | Supabase Auth sign-up/sign-in. |
+| WorkLog profile | WorkLog email, display name, avatar, and activity timestamp. Its ID is the Auth user's UUID. | Automatically synchronized by `GET /api/worklog/me`; organization creation and invitation acceptance also ensure a profile exists. |
+| Organization membership | Connects one profile to one organization with a role and membership status. A profile can have memberships in multiple organizations. | Organization creation, accepting an invitation, or an authorized administrator assigning an existing profile. |
+| Employee | An organization-specific workforce record used by reports and attendance. It may optionally link to a profile. | An authorized organization member creates it through the employees API. It is not created by signing up. |
+
+Consequences:
+
+- A person can sign in but have no organization.
+- A person can be an active organization member but have no employee record.
+- A profile name and an employee's first/family names are separate fields.
+  Prefill employee names from the user's Auth metadata or profile, and ask for
+  corrections only when the organization needs a different employee name.
+- The general portfolio `/auth/web-register` route creates an account in a
+  separate MongoDB-backed system. It does not create a WorkLog Auth user,
+  profile, membership, or employee.
+- The WorkLog API does not expose a global Auth-user directory, password
+  management, account deletion, or an invite-code lookup endpoint.
+
+## 2. Prerequisites and environment
+
+### API server
+
+The API reads `SUPABASE_URL` and either `SUPABASE_ANON_KEY` or
+`SUPABASE_PUBLISHABLE_KEY`. WorkLog also requires `WORKLOG_ENABLED=true` (or
+`1`). The server validates a Supabase access token and creates a user-scoped
+Supabase client for each request. The browser must send the Auth access token;
+the browser's publishable/anon key is not a user's access token.
+
+The invitation email flow additionally requires:
+
+- `RESEND_API_KEY`
+- `SENDER_EMAIL`
+- `WORKLOG_INVITATION_URL`
+
+`WORKLOG_INVITATION_URL` is the frontend's invitation-accept route, for
+example `https://app.example/#/accept-invitation`. The API appends the token.
+HTTPS is required except for localhost development. The Resend sender must be
+configured and authorized by the email provider.
+
+Set `ALLOWED_ORIGINS` on the API server to include the browser origin. Values
+must be origins only (scheme, hostname, optional port), not URLs with a path,
+query, or hash. For browser Auth setup, configure the Supabase Auth redirect
+allow-list for the frontend's sign-in and email-confirmation redirects.
+
+Never put a Supabase service-role/secret key in frontend code or public
+build-time variables. The WorkLog invitation implementation uses
+authenticated, permission-checked RPCs and Resend; it does not require the
+service-role key.
+
+### Database setup
+
+Apply the migrations in order:
+
+1. `001_initial_worklog_schema.sql` creates the core profile, organization,
+   membership, role, invitation, settings, and initial work tables/functions.
+2. `002_require_active_membership_for_permissions.sql` makes permission
+   evaluation depend on active organization membership.
+3. `003_worklog_data_api.sql` adds the employee-centered WorkLog model, API
+   fields, constraints, relationship triggers, RLS rules, and newer permission
+   keys/RPCs.
+4. `004_worklog_invitations.sql` adds acceptance metadata and the
+   permission-checked invitation RPC flow; it removes direct invitation table
+   policies and the old service-role membership function.
+5. `005_fix_worklog_relationship_trigger_dispatch.sql` fixes row-trigger
+   dispatch so each table's trigger validates only columns that exist on that
+   table's `NEW` record.
+6. `006_allow_multiple_attendance_shifts_per_day.sql` removes the legacy
+   one-attendance-record-per-profile/day constraint while preserving the
+   single-open-shift-per-employee rule.
+7. `007_return_settings_conflicts_without_database_error.sql` returns stale
+   settings edits as an API conflict without raising a database exception.
+8. `008_worklog_security_foundation.sql` removes direct organization creation,
+   deletion, and lifecycle edits; permission-scopes organization/audit access;
+   disables direct correction and idempotency-table access; and adds report
+   submission/review controls.
+
+`GET /api/worklog/health` and `GET /api/worklog/ready` report API enablement
+and configuration. They do **not** make a live database query and do not
+prove that migrations are present. Verify the migration history and table
+columns separately when data requests fail.
+
+### Frontend configuration
+
+The frontend needs the Supabase project URL and a publishable/legacy anon key
+to initialize Supabase Auth, plus the API origin to call the WorkLog API. This
+repository has no frontend source, so use the frontend framework's existing
+public configuration convention rather than assuming variable names here.
+All browser-visible Supabase keys are public; RLS and server permission checks
+must protect data.
+
+## 3. Authentication and profile bootstrap
+
+All protected API paths start with `/api/worklog` and require:
+
+```http
+Authorization: Bearer <current Supabase Auth access token>
+Content-Type: application/json
+```
+
+Use the latest Supabase session for each request. Do not send the anon key or a
+refresh token as the bearer token. Do not copy the access token into a second
+app-managed persistent store. Browser requests must go through the WorkLog
+HTTP API for business data; only Supabase Auth operations should use the
+browser's Supabase client.
+
+### Sign-up screen
+
+Collect:
+
+- Email.
+- Password and password confirmation.
+- The person's name once. If separate first/last inputs are used, save both
+  and their combined value as Auth user metadata.
+
+The backend profile synchronizer recognizes `user_metadata.full_name`,
+`user_metadata.name`, or `first_name` plus `last_name` (also
+`family_name`). A suitable Supabase Auth call is:
+
+```ts
+const first = firstName.trim();
+const last = lastName.trim();
+const { data, error } = await supabase.auth.signUp({
+  email: email.trim().toLowerCase(),
+  password,
+  options: {
+    data: {
+      first_name: first,
+      last_name: last,
+      full_name: `${first} ${last}`.trim(),
+    },
+    emailRedirectTo: redirectUrl,
+  },
+});
+```
+
+This is a frontend Auth operation, not a call to `/auth/web-register`. Handle
+Auth errors explicitly. If email confirmation is enabled, show a pending
+verification state and wait for a valid session before calling protected
+WorkLog routes. For invitation sign-up, set `emailRedirectTo` to the
+invitation-accept route and preserve the invitation token across the redirect.
+
+### Sign-in and startup
+
+1. Restore the Supabase Auth session. Do not render protected pages before
+   session restoration completes.
+2. Subscribe to Auth state changes once. Sign-in, sign-out, token refresh, and
+   email verification should update a single auth state in the frontend.
+3. With a valid access token, call `GET /api/worklog/me`.
+4. `/me` upserts the user's `profiles` row and returns:
+
+   ```json
+   {
+     "success": true,
+     "user": {
+       "id": "<Auth UUID>",
+       "email": "person@example.com",
+       "full_name": "Example Person"
+     },
+     "organizations": []
+   }
+   ```
+
+5. Each organization in `/me` includes `status`, `isActive`, and `deletedAt`.
+   Only select it when membership `status` is `active`, `isActive` is `true`,
+   and `deletedAt` is null. Suspended/deleted organizations now fail all
+   permission checks.
+6. Use `user.full_name` for account UI and as a default for employee forms.
+   The API does not offer a separate profile-update route. To change the
+   account name, update Supabase Auth metadata and call `/me` to synchronize.
+7. On sign-out, clear the selected organization and prevent the next account
+   from viewing the prior account's cached data. Partition queued writes by
+   user and organization; never replay one user's outbox using another user's
+   session.
+
+`GET /me` may return memberships whose status is not active. Show their status
+if useful, but only allow selecting an organization with `status: "active"`.
+If `/me` fails, display a retry/auth error; do not silently send the user to
+organization creation.
+
+## 4. Organization entry
+
+### Existing or new invitation recipient
+
+Invitations are email links containing a random token, not manually entered
+organization codes. The API does not support a typed invite-code page.
+
+1. The invitee opens the emailed link. Route to an invitation-accept screen
+   and read the `token` query parameter from the configured URL/hash route.
+2. Do not log or include the token in analytics. Preserve it through sign-in,
+   sign-up, and email verification. Clear it from the visible URL only after
+   successful acceptance; if short-term storage is needed for redirects,
+   isolate it to the current browser session and clear it afterward.
+3. Authenticate with the same email address that received the invite. If the
+   signed-in email differs, offer account switching.
+4. Call:
+
+   ```http
+   POST /api/worklog/invitations/accept
+   ```
+
+   ```json
+   { "token": "<raw token from the email link>" }
+   ```
+
+5. On `200`, clear the token, call `/me` again, select the returned
+   organization, then load its permissions and data.
+
+Acceptance responses:
+
+| Result | API response | Frontend behavior |
+|---|---|---|
+| Accepted | `200`, `data.status = "accepted"` with organization and role. | Refresh `/me`, select the organization, continue. |
+| Same invite already accepted by this user | `200`, `data.status = "already_accepted"`. | Refresh `/me` and continue. |
+| User is already an active member when accepting a different invite | `409`. The invitation is marked accepted in the database. | Refresh `/me`; if the organization is active, let the user continue and explain that they already belonged. |
+| Token expired or revoked | `410`. | Show unavailable/expired; ask an admin to resend. |
+| Email differs or is unverified | `403`. | Ask the user to verify or switch to the invited email. |
+| Token not found | `404`. | Show invalid link and offer a fresh invitation. |
+| Missing/expired session | `401`. | Authenticate, then retry acceptance. |
+
+Invitations are valid for seven days. The database stores a SHA-256 token
+hash, not the raw token. Resending to the same organization/email revokes its
+previous pending invitation. Existing Supabase accounts can be invited; the
+invite process does not create a duplicate Auth account.
+
+### Create an organization
+
+When the authenticated user has no active organization and has no invitation
+to accept, show organization creation or explain how to ask an administrator
+for an email invitation. Do not require an invitee to create an organization.
+
+Call `POST /api/worklog/organizations`:
+
+```json
+{
+  "name": "Example Organization",
+  "slug": "example-organization",
+  "description": "Optional"
+}
+```
+
+- `name` is required and must be at least two characters after trimming.
+- `slug` is optional. The server lowercases it, normalizes separators to
+  hyphens, and limits it to 64 characters.
+- `description` is optional.
+- Success is `201`; the authenticated user becomes the active owner.
+- A conflicting slug returns `409`. Let the user choose another slug.
+
+After creation, call `/me` again and select the new active membership.
+`create_organization_for_owner` also seeds the organization's system roles,
+role permissions, owner membership, user-role link, and settings row.
+
+## 5. First organization setup and daily use
+
+### Select and initialize an organization
+
+After selecting an active organization:
+
+1. Use the organization's UUID in API paths; it is context, not proof of
+   authorization.
+2. Load `/organizations/:organizationId` if the UI needs organization
+   details.
+3. Load `/organizations/:organizationId/permissions` when the user has
+   `organization.roles.read`. Use `data.effective` to tailor controls; the
+   API checks every operation again.
+4. Load resources the user can read. Show loading, empty, offline/cache, and
+   failure states separately.
+5. Populate local cache from canonical API responses. The server is
+   authoritative; offline changes belong in a durable, user-scoped outbox.
+
+### Create employee records
+
+An employee is a row in one organization; it is not an Auth user. The
+employees API accepts:
+
+```json
+{
+  "first_name": "Ava",
+  "family_name": "Example",
+  "employee_code": "EMP-100",
+  "position": "Technician",
+  "is_active": true,
+  "profile_id": "<optional active member UUID>"
+}
+```
+
+`first_name` and `family_name` are required. If `profile_id` is provided, the
+profile must already be an active member of this organization. The database
+allows at most one non-archived employee row per organization/profile and
+employee code. The API sets organization/profile metadata and generated
+fields; do not send `organization_id`, record `id`, timestamps, `deleted_at`,
+or local `sync_status`.
+
+The initial owner can create employee records. Other roles need `employees.write`.
+Create/link the employee before using attendance or a daily report, because
+both APIs require that employee's UUID. Employees can exist without a linked
+profile; linking is optional.
+
+### Attendance check-in/out
+
+Attendance API resource is `/organizations/:organizationId/attendance`.
+For an online create, `POST` the collection; for an offline/idempotent write,
+generate one stable UUID and `PUT` the item route.
+
+```json
+{
+  "employee_id": "<employee UUID in this organization>",
+  "date": "2026-11-13",
+  "clock_in": "2026-11-13T08:00:00.000Z",
+  "clock_out": null,
+  "notes": "",
+  "status": "present"
+}
+```
+
+`employee_id`, a real Gregorian `YYYY-MM-DD` date, and an ISO `clock_in` are
+required. `clock_out: null` means the shift is active. Set a later
+`clock_out` to close it. At most one active shift exists per employee and
+organization. Allowed statuses: `present`, `absent`, `late`, `leave`,
+`holiday`. The API maps these fields to database columns
+`employee_id`, `attendance_date`, `check_in`, and `check_out`; it supplies
+organization/profile IDs itself. The user's role must grant `attendance.write`.
+
+### Daily reports and related records
+
+Create a report before report-attached data:
+
+1. Create a report for an employee and date.
+2. Create tasks under that report.
+3. Create ECU entries under a task.
+4. Create received-part and delivery rows under the report.
+
+The API and database validate that all parent rows are in the same
+organization. Reports are unique per non-archived employee/date. A task parent
+must be in the same report. An ECU entry needs a task attached to a report.
+Received parts and deliveries require a report. Prefer this order for offline
+outbox replay as well.
+
+## 6. Organization member administration
+
+### Permissions and membership states
+
+`organization.membership.read` allows listing members.
+`organization.membership.manage` allows assigning/updating members, inviting,
+listing invitations, and revoking invitations. These are separate permissions;
+do not assume a member manager can read every role or manage roles.
+
+Membership status values are:
+
+- `active`: can use organization endpoints if their role grants the required
+  permission.
+- `pending`: not active; does not satisfy active-membership permission checks.
+- `inactive`: disabled without deleting the membership row.
+- `revoked`: access removed without deleting membership history.
+
+The database has one membership row per organization/profile and a separate
+user-role link used by permission checks. The frontend should use `/me` and
+the member list for display; do not write either table from the browser.
+
+### Members page
+
+Use these calls:
+
+| Action | Method and path | Permission |
+|---|---|---|
+| List members | `GET /organizations/:organizationId/members` | `organization.membership.read` |
+| Assign existing profile | `POST /organizations/:organizationId/members` | `organization.membership.manage` |
+| Change role/status | `PATCH /organizations/:organizationId/members/:profileId` | `organization.membership.manage` |
+
+Member list records contain membership ID, `profile_id`, `status`, timestamps,
+and joined `profiles` (`id`, `email`, `full_name`, `avatar_url`) and `roles`
+(`id`, `name`, `key`) objects.
+
+Direct assignment body:
+
+```json
+{
+  "profile_id": "<existing profile UUID>",
+  "role_id": "<role UUID in this organization>",
+  "status": "active"
+}
+```
+
+The profile must exist. This is appropriate only when the administrator
+already has a valid profile UUID. There is no global user search endpoint;
+email invitation is the normal way to add a user not already known to the
+organization.
+
+Change a member using:
+
+```json
+{
+  "role_id": "<role UUID in this organization>",
+  "status": "inactive"
+}
+```
+
+`PATCH` requires both fields. Allowed status values are `pending`, `active`,
+`inactive`, and `revoked`. Refresh the member list and the signed-in user's
+organization state after successful changes. Never show a success state
+before the API confirms the change.
+
+### Invite, list, and revoke
+
+| Action | Method and path | Permission |
+|---|---|---|
+| List pending invites | `GET /organizations/:organizationId/members/invitations` | `organization.membership.manage` |
+| Send invite | `POST /organizations/:organizationId/members/invitations` | `organization.membership.manage` |
+| Revoke invite | `DELETE /organizations/:organizationId/members/invitations/:invitationId` | `organization.membership.manage` |
+| Accept invite | `POST /invitations/accept` | Authenticated invitee; verified matching email |
+
+Send body:
+
+```json
+{
+  "email": "person@example.com",
+  "role_id": "<non-owner role UUID from this organization>"
+}
+```
+
+The route normalizes email to lowercase and validates its basic format. The
+server verifies role ownership and whether the inviter may assign the role.
+Owner invitations are rejected. Success returns `201` with invitation ID,
+email, role name, pending status, and expiration. It does not include the raw
+token or activate membership.
+
+The pending-invitation list returns ID, email, role object, status,
+`created_at`, and `expires_at`; it never returns token hashes. A send can fail
+with `503` if Resend/sender/link configuration is missing or `502` if email
+delivery fails. On delivery failure the API attempts to revoke the pending
+invitation. A duplicate active member is a conflict (`409`).
+
+Revoking an invitation returns the new status. `404` means it was not found in
+that organization; `409` means it was already accepted. Do not attempt to
+revoke an accepted membership with this endpoint; use membership status
+management if authorized.
+
+### Roles and effective permissions
+
+The organization starts with system roles: owner, administrator, manager,
+technician, viewer, and auditor. Descriptions in the schema are intent, not an
+authorization substitute. The exact permission keys returned by the API are
+authoritative.
+
+Default intent:
+
+| Role | Intended use |
+|---|---|
+| Owner | Organization owner and broad organization/data control; only owner can grant the owner role. |
+| Administrator | Broad operational access, membership and role administration, and settings. |
+| Manager | Operational work and employee management; can view members, but membership management is separate. |
+| Technician | Operational work/logging; does not manage employees or memberships by default. |
+| Viewer | Read-only operational access. |
+| Auditor | Read-only operational access with audit permission where seeded. |
+
+Use:
+
+| Action | Method and path | Permission |
+|---|---|---|
+| List roles and permission keys | `GET /organizations/:organizationId/roles` | `organization.roles.read` |
+| List available/effective permissions | `GET /organizations/:organizationId/permissions` | `organization.roles.read` |
+| Create custom role | `POST /organizations/:organizationId/roles` | `organization.roles.manage` |
+| Replace custom role permissions | `PUT /organizations/:organizationId/roles/:roleId/permissions` | `organization.roles.manage` |
+
+Custom role body:
+
+```json
+{
+  "name": "Shift lead",
+  "key": "shift_lead",
+  "description": "Coordinates a shift",
+  "permission_keys": ["employees.read", "attendance.read"]
+}
+```
+
+Role name is 2-100 characters. The key must match
+`^[a-z][a-z0-9_-]{1,63}$` and cannot reuse a system-role key. Permission keys
+must be unique and come from the API's available permission list. System role
+permissions cannot be edited. A custom role permission change affects all
+members assigned to that role.
+
+The server prevents non-owners from assigning the owner role, prevents
+changing another owner's membership without being an owner, and prevents
+removing/demoting the final active owner. A member manager cannot assign a
+role containing permissions they do not hold; a role manager can manage
+custom-role permissions. The UI must still handle server denials because the
+API rechecks all constraints.
+
+`organization.update` permits an active owner or administrator to update only
+organization `name`, `slug`, and `description` through authenticated Supabase
+table access. Direct organization creation, deletion, ownership changes, and
+activation/deactivation are not allowed; creation remains through
+`POST /organizations`. Organizations that are inactive or soft-deleted fail
+all `has_permission` checks.
+
+The database table policies are stricter than the backend routes: direct
+Supabase requests must use the signed-in user's access token and are checked by
+RLS. Never put a service-role key in the frontend. The `permissions` catalogue
+is intentionally global; organization data is not.
+
+## 7. Data model from migrations and API
+
+The database is organization-scoped. The API derives organization and actor
+profile IDs from the authenticated route context. Do not let a client choose
+another organization by putting a different organization ID in the JSON body.
+
+### Identity and organization tables
+
+| Table | Important fields and relationships |
+|---|---|
+| `profiles` | `id` is the Supabase Auth user UUID; `email`, `full_name`, `avatar_url`, activity timestamps. |
+| `organizations` | UUID, name, unique slug, description, owner/creator profile IDs, active/deleted flags, timestamps. |
+| `roles` | Organization-scoped name/key, system/default flags, description. `(organization_id,key)` and `(organization_id,name)` are unique. |
+| `permissions` | Global permission key/category/description catalogue. |
+| `role_permissions` | Role-to-permission join. |
+| `organization_memberships` | Organization/profile/role/status; unique per organization/profile. |
+| `user_roles` | Permission-evaluation role join for an organization/profile. Managed with membership RPCs. |
+| `invitations` | Organization, creator, email, role, token hash, status and expiry; migration 004 adds acceptance profile/time. |
+| `organization_settings` | One JSON settings object per organization. |
+
+Invitation database statuses are `pending`, `accepted`, `expired`, and
+`revoked`. Membership statuses are `pending`, `active`, `inactive`, and
+`revoked`; they are not interchangeable.
+
+### Business tables and API field mappings
+
+| API resource | Database table | Relationships / server-filled columns |
+|---|---|---|
+| `/employees` | `employees` | Organization-scoped; optional `profile_id` link to active member. |
+| `/daily-reports` | `daily_reports` | Requires employee; server snapshots employee first/family names. Unique active employee/date. API `date` maps to `report_date`. |
+| `/tasks` | `tasks` | Requires report; optional parent task must be in same report. API `task_name` maps to `title`. |
+| `/ecu-entries` | `ecu_entries` | Requires task under a report. Server derives date/value from report and quantity; API `date` maps from `ecu_date`. |
+| `/received-parts` | `received_parts` | Requires report. New row `received_at` is derived from report date. |
+| `/deliveries` | `deliveries` | Requires report. API `date` maps to `delivery_date`; `delivered_to` maps to `destination`. |
+| `/attendance` | `attendance_records` | Requires employee. API `date`, `clock_in`, `clock_out` map to `attendance_date`, `check_in`, `check_out`. |
+
+The database also has `attendance_corrections`, `audit_logs`,
+`user_preferences`, and `sync_idempotency_records`, but this WorkLog HTTP API
+does not expose general CRUD for them. Do not invent endpoints for them.
+Direct Supabase access to `user_preferences` is limited to the signed-in
+profile. `attendance_corrections` and `sync_idempotency_records` are blocked
+for `anon` and `authenticated` until dedicated permission-checked APIs exist.
+`audit_logs` is read-only for a member with `audit.read`; authenticated clients
+cannot insert, update, or delete audit entries. Automatic business-record
+audit entries store changed field names, not old/new field values. Existing
+membership and invitation audit events may include event-specific details
+such as an invitee email.
+
+### API field contracts
+
+Every write rejects unknown fields, server-owned fields, and client
+`sync_status`. Returned rows include database fields, mapped API aliases where
+needed, and response-only `sync_status: "synced"`.
+
+#### Employees
+
+```json
+{
+  "first_name": "Ava",
+  "family_name": "Example",
+  "employee_code": "EMP-100",
+  "position": "Technician",
+  "is_active": true,
+  "profile_id": null
+}
+```
+
+- `first_name` and `family_name` are required strings, max 100 characters.
+- `employee_code` max 64; `position` max 120.
+- `is_active` is boolean.
+- `profile_id` is optional/nullable and, if set, must be an active member in
+  the same organization.
+
+#### Daily reports
+
+```json
+{
+  "employee_id": "<employee UUID>",
+  "date": "2026-11-13",
+  "status": "draft",
+  "summary": "",
+  "notes": ""
+}
+```
+
+- Employee UUID and real `YYYY-MM-DD` date are required.
+- New reports always start as `draft`. `status` is read-only in generic create
+  and update payloads; do not send it.
+- `summary` max 10,000 and `notes` max 20,000 characters; both may be null.
+- Employee name snapshots and author/profile IDs are server-owned.
+
+Submit and review reports through their dedicated transitions:
+
+| Action | Method and path | Permission |
+|---|---|---|
+| Submit a draft/completed/rejected report | `POST /organizations/:organizationId/daily-reports/:id/submit` | `daily_reports.write` |
+| Approve or reject a submitted report | `POST /organizations/:organizationId/daily-reports/:id/review` | `daily_reports.approve` |
+
+Review body:
+
+```json
+{
+  "decision": "rejected",
+  "rejection_reason": "Please include the missing work details."
+}
+```
+
+`decision` is `approved` or `rejected`; rejection requires a reason of at most
+2,000 characters. Owner, administrator, and manager roles receive
+`daily_reports.approve` by default; custom roles can be assigned it explicitly.
+Submission records `submitted_by`/`submitted_at`; review records
+`reviewed_by`/`reviewed_at`. Submitted and approved report content is locked.
+A rejected report can be edited and resubmitted. Approval/rejection and report
+changes are recorded in the append-only audit log.
+
+#### Tasks
+
+```json
+{
+  "report_id": "<daily report UUID>",
+  "order_index": 0,
+  "task_name": "Repair unit",
+  "description": "",
+  "learned_today": "",
+  "taught_others": "",
+  "status": "new",
+  "priority": "medium",
+  "due_date": null,
+  "parent_task_id": null
+}
+```
+
+- `report_id` and non-empty `task_name` are required.
+- `task_name` max 300; description/learned/taught fields max 20,000.
+- `order_index` is a non-negative integer.
+- Status: `new`, `assigned`, `in_progress`, `blocked`, `completed`,
+  `cancelled`.
+- Priority: `low`, `medium`, `high`, `urgent`.
+- `due_date` is null or a real `YYYY-MM-DD` date. A parent task must use the
+  same report.
+
+#### ECU entries
+
+```json
+{
+  "task_id": "<task UUID>",
+  "order_index": 0,
+  "ecu_name": "ECU model",
+  "quantity": 1,
+  "program_used": "",
+  "original_program": "",
+  "converted_into": "",
+  "notes": ""
+}
+```
+
+- `task_id`, non-empty `ecu_name`, and integer `quantity >= 1` are required.
+- ECU name max 300; program strings max 500; notes max 20,000.
+- Date and legacy numeric value are derived by the API/database from the
+  related report and quantity.
+
+#### Received parts
+
+```json
+{
+  "report_id": "<daily report UUID>",
+  "part_name": "Part",
+  "quantity": 1,
+  "storage_location": "",
+  "received_from": "",
+  "notes": ""
+}
+```
+
+- Report UUID, non-empty part name, and integer `quantity >= 1` are required.
+- Part name, storage location, source, and notes max 300, 300, 300, and 20,000
+  characters respectively.
+
+#### Deliveries
+
+```json
+{
+  "report_id": "<daily report UUID>",
+  "date": "2026-11-13",
+  "item_description": "Item",
+  "quantity": 1,
+  "delivered_to": "",
+  "notes": "",
+  "status": "pending"
+}
+```
+
+- Report UUID, real date, non-empty item description, and integer
+  `quantity >= 1` are required.
+- Item description max 1,000; destination max 300; notes max 20,000.
+- Status: `pending`, `in_transit`, `delivered`, `failed`.
+
+#### Attendance
+
+```json
+{
+  "employee_id": "<employee UUID>",
+  "date": "2026-11-13",
+  "clock_in": "2026-11-13T08:00:00.000Z",
+  "clock_out": null,
+  "notes": "",
+  "status": "present"
+}
+```
+
+- Employee UUID, real date, and valid timestamp `clock_in` are required.
+- `clock_out` is nullable; when set it must be later than `clock_in`.
+- `notes` max 20,000.
+- Status: `present`, `absent`, `late`, `leave`, `holiday`.
+- At most one open shift per employee/organization.
+
+## 8. Shared business data API
+
+All paths below are relative to `/api/worklog`:
+
+```text
+/organizations/:organizationId/:resource
+/organizations/:organizationId/:resource/:id
+```
+
+| Resource | Read permission | Write permission |
+|---|---|---|
+| `employees` | `employees.read` | `employees.write` |
+| `daily-reports` | `daily_reports.read` | `daily_reports.write` |
+| `tasks` | `tasks.read` | `tasks.write` |
+| `ecu-entries` | `tasks.read` | `tasks.write` |
+| `received-parts` | `received_parts.read` | `received_parts.write` |
+| `deliveries` | `deliveries.read` | `deliveries.write` |
+| `attendance` | `attendance.read` | `attendance.write` |
+
+Each resource supports `GET` collection, `GET /:id`, `POST` collection,
+`PUT /:id`, `PATCH /:id`, and `DELETE /:id`.
+
+- Collection query defaults: `limit=100`, `offset=0`. Limit must be 1-200;
+  offset must be a non-negative integer.
+- Common date filters are `dateFrom` and `dateTo`, inclusive.
+- Resource filters: employees `is_active`; reports `employee_id,status`; tasks
+  `report_id,status`; ECU entries `task_id`; received parts `report_id`;
+  deliveries `report_id,status`; attendance `employee_id,status`.
+- A collection response is
+  `{ "success": true, "data": [], "pagination": { "limit": 100, "offset": 0, "total": 0 } }`.
+- `POST` creates an online row and returns `201`.
+- For an offline outbox write, generate one stable UUID once and use
+  `PUT /:id` to create-or-update that exact ID. Reuse it on retries. The
+  response is the canonical server row.
+- When updating a server-known row, send its exact `updated_at` as
+  `expected_updated_at`. A stale value returns `409`; fetch and resolve rather
+  than silently overwriting. Omit it for a row not yet on the server.
+- `PATCH` updates only the supplied API fields, but cross-record constraints
+  still apply.
+- `DELETE` archives (soft-deletes); it does not physically delete. Archived
+  rows are omitted from ordinary reads. Report archive also archives
+  report-related tasks, ECU entries, received parts, and deliveries; task
+  archive also archives ECU entries.
+- Never send database-owned IDs, org/profile IDs, timestamps, `deleted_at`,
+  `sync_status`, or UI-only local state as business payload fields.
+
+Keep the local database as cache/outbox only. Preserve pending operations on
+network failures, use stable UUIDs and dependency ordering, update cache from
+canonical server responses, and never label a pending local write as synced.
+
+## 9. Settings
+
+Settings endpoints:
+
+- `GET /organizations/:organizationId/settings` requires `settings.read`.
+- `PATCH /organizations/:organizationId/settings` requires `settings.manage`.
+
+Current defaults:
+
+```json
+{
+  "id": "default",
+  "app_name": "WORKLOG",
+  "selected_employee_id": null,
+  "theme": "system",
+  "language": "en",
+  "date_format": "YYYY-MM-DD",
+  "time_format": "24h",
+  "default_report_mode": "resume_draft",
+  "autosave_enabled": true
+}
+```
+
+Allowed setting keys are `app_name`, `selected_employee_id`, `theme`,
+`language`, `date_format`, `time_format`, `default_report_mode`, and
+`autosave_enabled`. Allowed values: theme `light|dark|system`, language
+`en|fa`, date format `YYYY-MM-DD|DD/MM/YYYY|MM/DD/YYYY`, time format
+`12h|24h`, report mode `new|resume_draft`, autosave boolean. A non-null
+`selected_employee_id` must be a non-archived employee in this organization.
+The settings identifier remains `"default"`.
+
+For conflict-safe updates, include the exact returned `updated_at` as
+`expected_updated_at`. If another settings write changed the row, the API
+returns `409` without applying the patch. Fetch the latest settings and resolve
+the change before retrying; do not retry repeatedly with the same stale
+timestamp. The database signals this conflict with an empty RPC result rather
+than raising an exception.
+
+## 10. Errors and support diagnostics
+
+Handle API errors by status, preserve user work, and do not convert every
+failure into "offline":
+
+| Status | Meaning / frontend response |
+|---|---|
+| `400` | Invalid field, date, UUID, relation, or constraint. Show correction guidance. |
+| `401` | Missing/expired access token. Refresh Supabase Auth and retry only safe requests. |
+| `403` | Missing permission, unverified email, or invite email mismatch. Explain the required action. |
+| `404` | Missing organization/record/invitation. Refresh and reconcile rather than silently deleting local data. |
+| `409` | Unique conflict, stale version, accepted invite already handled, or protected state. Preserve local changes and show conflict details. |
+| `410` | Invitation expired, revoked, or unavailable. Ask an administrator to send another. |
+| `500` | Unexpected API/database failure. Keep the cache/outbox and show a retry option. Data-route 500 responses include `correlationId`; give that ID to support. |
+| `502` | Invitation email provider failed. The API attempts to revoke the unsent invitation; allow retry after checking server email configuration. |
+| `503` | WorkLog disabled or invitation email configuration missing. This is server configuration, not a user form error. |
+
+The data API intentionally returns generic database messages to the browser.
+Its server logs include database diagnostics and a correlation ID. Do not send
+access tokens, invitation tokens, passwords, or work data in client telemetry.
+`/ready` is not a live database check; a successful readiness response does
+not prove migrations or individual tables are correct.
+
+## 11. Frontend implementation checklist for an agent
+
+Create or adapt screens; these are logical page responsibilities, not
+existing routes:
+
+| Page/feature | Must do |
+|---|---|
+| Sign up | Create Supabase Auth user, save name metadata, handle email confirmation, and preserve an invitation return route. |
+| Sign in / session restore | Use Supabase Auth, restore session before protected routing, and never store a second copy of the access token. |
+| Invitation accept | Read and protect the email token, sign in/up with the invited email, call accept, refresh `/me`, clear token. No typed invite code. |
+| Organization chooser | Show active organizations from `/me`; do not open inactive/pending memberships. |
+| Organization creation | Ask for name, optional slug/description; create only when no invite is being accepted. |
+| Employee directory | List and create organization employees; optionally link an active member profile. |
+| Attendance | Use an existing employee ID, `clock_out: null` for check-in, close with a later timestamp, handle the active-shift uniqueness constraint. |
+| Daily work | Follow report -> task -> ECU and report -> parts/delivery relationships. Create reports as drafts, submit through the submit action, and review only through the approval action. |
+| Report review | Show submit controls to `daily_reports.write`; show approve/reject controls only to `daily_reports.approve`. Do not send `status` in generic report writes; require and display a rejection reason. |
+| Audit history | Read `audit_logs` with the signed-in Supabase client and `audit.read`; RLS returns no other-organization rows and direct writes are rejected. |
+| Member administration | Gate list by membership-read, mutations by membership-manage, use email invitations for unknown users, refresh after success. |
+| Role/permission administration | Gate role list by roles-read and changes by roles-manage; use the API's permission catalogue. |
+| Settings | Load organization settings; use optimistic `updated_at` checks and preserve conflict data. |
+| Offline support | Persist cache/outbox by user and organization, use stable IDs/dependency ordering, never drop or falsely mark pending writes as synced. |
+
+Before calling a screen complete, test:
+
+1. New sign-up with email confirmation and name metadata; `/me` should return
+   the same display name without another account-name prompt.
+2. New account with no organization; create one and verify `/me` returns an
+   active owner membership.
+3. Existing and new invitees; email link preserves token through Auth and
+   acceptance creates active membership only after verified matching email.
+4. Member manager with read but no manage permission; list remains available
+   and mutation controls are hidden/rejected.
+5. Direct assignment for a known existing profile, role changes, revocation,
+   and owner-protection errors.
+6. New organization employee creation; link an active member and verify
+   attendance/report writes use that employee UUID.
+7. Check in with `clock_out: null`, check out with a later timestamp, and
+   reject a second active shift for the same employee.
+8. CRUD for each resource, pagination/filters, archive behavior, stale
+   `expected_updated_at`, offline replay, token expiration, permission denial,
+   and server outage.
+
+### Direct Supabase RLS integration test
+
+The normal WorkLog test suite includes a direct PostgREST integration test,
+skipped unless all of these are set in the test environment:
+
+- `WORKLOG_RLS_TEST_SUPABASE_URL` and `WORKLOG_RLS_TEST_ANON_KEY`
+- `WORKLOG_RLS_TEST_ORG_ID` and `WORKLOG_RLS_TEST_OTHER_ORG_ID`
+- `WORKLOG_RLS_TEST_OWNER_TOKEN`, `WORKLOG_RLS_TEST_WRITER_TOKEN`, and
+  `WORKLOG_RLS_TEST_NO_AUDIT_TOKEN`
+- `WORKLOG_RLS_TEST_OTHER_MEMBER_PROFILE_ID`,
+  `WORKLOG_RLS_TEST_OTHER_ROLE_ID`, and
+  `WORKLOG_RLS_TEST_SUBMITTED_REPORT_ID`
+
+Use **disposable test organizations and a disposable submitted report only**:
+the test deliberately attempts forbidden mutations, and its cross-organization
+checks need representative rows in the second organization. The writer token
+must have `daily_reports.write` but not `daily_reports.approve`; the no-audit
+token must be an active organization member without `audit.read`. Run it with
+`node --test tests/worklogSupabaseRls.integration.test.js`. The test uses the
+public anon key plus user JWTs; never set a service-role key for this test.
+
+Do not mark an app setup "ready" merely because sign-up succeeded. The user
+must have an active organization membership, required employee/parent records,
+and role permissions for the actions they intend to use.
