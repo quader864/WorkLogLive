@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>WORKLOG — Redirecting…</title>
+    <script>
+      (function () {
+        try {
+          var l = window.location;
+          var target = (l.pathname || '/') + (l.search || '') + (l.hash || '');
+          if (target && target !== '/') {
+            window.sessionStorage.setItem('wl_spa_redirect', target);
+          }
+          l.replace(l.protocol + '//' + l.host + '/');
+        } catch (e) {
+          window.location.replace('/');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <noscript>
+      <p>
+        Redirecting to <a href="/">WorkLog</a>…
+      </p>
+    </noscript>
+  </body>
+</html>
