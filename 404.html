@@ -13,7 +13,7 @@
           if (target && target !== '/') {
             window.sessionStorage.setItem('wl_spa_redirect', target);
           }
-          l.replace(l.protocol + '//' + l.host + '/');
+          l.replace(l.protocol + '//' + l.host + '/?p=' + encodeURIComponent(target));
         } catch (e) {
           window.location.replace('/');
         }

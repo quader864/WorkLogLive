@@ -28,12 +28,18 @@
     <script>
       (function () {
         try {
-          var redirect = window.sessionStorage.getItem('wl_spa_redirect');
-          if (redirect) {
+          var params = new URLSearchParams(window.location.search);
+          var p = params.get('p') || window.sessionStorage.getItem('wl_spa_redirect');
+          if (p) {
             window.sessionStorage.removeItem('wl_spa_redirect');
-            if (redirect.charAt(0) === '/') {
-              window.history.replaceState(null, '', redirect);
+            if (p.charAt(0) === '/') {
+              window.history.replaceState(null, '', p);
             }
+          } else if (params.has('p')) {
+            params.delete('p');
+            var cleanSearch = params.toString();
+            var cleanUrl = window.location.pathname + (cleanSearch ? '?' + cleanSearch : '') + window.location.hash;
+            window.history.replaceState(null, '', cleanUrl);
           }
         } catch (e) {}
       })();
