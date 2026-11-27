@@ -830,7 +830,9 @@ Allowed setting keys are `app_name`, `selected_employee_id`, `theme`,
 `autosave_enabled`. Allowed values: theme `light|dark|system`, language
 `en|fa`, date format `YYYY-MM-DD|DD/MM/YYYY|MM/DD/YYYY`, time format
 `12h|24h`, report mode `new|resume_draft`, autosave boolean. A non-null
-`selected_employee_id` must be a non-archived employee in this organization.
+`selected_employee_id` must identify an active member or contractor in this
+organization. This selection is stored per signed-in profile and does not
+change another member's active worker. Other settings remain organization-wide.
 The settings identifier remains `"default"`.
 
 For conflict-safe updates, include the exact returned `updated_at` as
